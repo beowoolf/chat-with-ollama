@@ -16,9 +16,9 @@ public class OllamaRestController {
     String ollama(@RequestBody UserRequest request) {
         var promptAi = new org.springframework.ai.chat.prompt.Prompt(
                 request.message(),
-                OllamaOptions.create().withModel(request.model() == null ? "llama2-uncensored" : request.model())
+                OllamaOptions.builder().model(request.model() == null ? "llama2-uncensored" : request.model()).build()
         );
         var response = ollamaChatClient.call(promptAi);
-        return response.getResult().getOutput().getContent();
+        return response.getResult().getOutput().getText();
     }
 }
