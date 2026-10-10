@@ -23,7 +23,7 @@ Maven coordinates: `pl.mojezapiski:ai:0.0.1-SNAPSHOT`.
 
 ## Project description
 
-This project is a small HTTP API for chatting with open-source large language models served by Ollama. The application description in `pom.xml` is: *A project to build a chat using Ollama's Open Source LLM models.*
+A small HTTP API for chatting with open-source large language models served by Ollama. The application description in `pom.xml` is: *A project to build a chat using Ollama's Open Source LLM models.*
 
 A client posts a message (and, optionally, a model name) to `POST /ollama`. The service builds a Spring AI prompt, calls `OllamaChatModel`, and returns the generated text as a plain string.
 
@@ -36,7 +36,7 @@ If the request omits `model`, the controller uses `llama2-uncensored`.
 }
 ```
 
-The application can run as an executable Spring Boot process or be deployed as a WAR. `ServletInitializer` registers `AiApplication` for an external servlet container. Embedded Tomcat is declared with `provided` scope.
+The application can run as an executable Spring Boot process, be deployed as a WAR to an external servlet container, or run in Docker with Ollama via Docker Compose. `ServletInitializer` registers `AiApplication` for external servlet containers. Embedded Tomcat is declared with `provided` scope.
 
 There is no web UI, persistence, authentication, or conversation history. Each request is a single prompt/response call.
 
@@ -50,10 +50,11 @@ There is no web UI, persistence, authentication, or conversation history. Each r
 | AI integration | Spring AI 1.1.4 (`spring-ai-ollama-spring-boot-starter`) |
 | HTTP API | Spring Web (`spring-boot-starter-web`) |
 | Reactive stack | Spring WebFlux and Project Reactor (on the classpath; the public endpoint is synchronous) |
-| Boilerplate | Lombok (`@RequiredArgsConstructor`, optional, excluded from the packaged artifact) |
+| Boilerplate | Lombok (optional; excluded from the Spring Boot Maven plugin repackaging) |
 | Servlet container | Apache Tomcat (`spring-boot-starter-tomcat`, `provided`) |
 | Packaging | WAR (`ai-0.0.1-SNAPSHOT.war`) |
-| Tests | JUnit via `spring-boot-starter-test`, plus `reactor-test` |
+| Containerization | Docker (Eclipse Temurin 25 JDK/JRE on Alpine), Docker Compose |
+| Tests | JUnit 5 via `spring-boot-starter-test`, plus `reactor-test` |
 
 Runtime configuration in `src/main/resources/application.properties` sets only the application name:
 
@@ -61,12 +62,13 @@ Runtime configuration in `src/main/resources/application.properties` sets only t
 spring.application.name=ai
 ```
 
-Ollama connection settings are left to Spring AI defaults. The usual local base URL is `http://localhost:11434` (`spring.ai.ollama.base-url`).
+Ollama connection settings are left to Spring AI defaults. The default local base URL is `http://localhost:11434` (`spring.ai.ollama.base-url`). Override it with the `SPRING_AI_OLLAMA_BASE_URL` environment variable or the `spring.ai.ollama.base-url` property.
 
 Further reading:
 
 - [Spring AI Ollama Chat](https://docs.spring.io/spring-ai/reference/api/chat/ollama-chat.html)
 - [Ollama](https://ollama.com/)
+- [Spring Boot](https://docs.spring.io/spring-boot/)
 
 ## Getting started locally
 
@@ -101,7 +103,7 @@ mvnw.cmd spring-boot:run
 
 The API listens on port `8080`.
 
-To point at an Ollama server that is not on the default host, add a property before starting:
+To point at an Ollama server that is not on the default host, set the property before starting:
 
 ```properties
 spring.ai.ollama.base-url=http://localhost:11434
@@ -131,6 +133,30 @@ java -jar target/ai-0.0.1-SNAPSHOT.war
 
 The same WAR can be deployed to an external servlet container. Tomcat is not bundled as a compile dependency (`provided`).
 
+### Running with Docker Compose
+
+The repository includes a `Dockerfile` (multi-stage: builds the WAR with the Maven Wrapper, then runs it on a Temurin 25 JRE) and a `docker-compose.yml` that starts three services:
+
+| Service | Purpose |
+| --- | --- |
+| `ollama` | Ollama server with a persistent `ollama-data` volume, exposed on `11434` |
+| `ollama-pull` | One-off job that pulls the model named by `OLLAMA_MODEL` (default `llama2-uncensored`) |
+| `app` | This Spring Boot application, exposed on `8080`, pointed at `http://ollama:11434` |
+
+```bash
+docker compose up --build
+```
+
+To use a different default model:
+
+```bash
+OLLAMA_MODEL=llama3.2 docker compose up --build
+```
+
+Then send requests to `http://localhost:8080/ollama` as shown above.
+
+For NVIDIA GPU support, install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) and uncomment the `deploy` block under the `ollama` service in `docker-compose.yml`.
+
 ## Available scripts
 
 This repository uses Maven goals through the wrapper. There is no separate script runner.
@@ -142,6 +168,8 @@ This repository uses Maven goals through the wrapper. There is no separate scrip
 | `./mvnw package` | Compile, test, and build `target/ai-0.0.1-SNAPSHOT.war` |
 | `./mvnw clean` | Remove the `target` directory |
 | `./mvnw clean package` | Clean build of the WAR |
+| `docker compose up --build` | Build the app image and start Ollama, the model pull, and the app |
+| `docker compose down` | Stop and remove the Compose containers (the `ollama-data` volume is kept) |
 
 On Windows, replace `./mvnw` with `mvnw.cmd`.
 
@@ -154,7 +182,8 @@ In scope today:
 - Spring Boot entry point (`AiApplication`) and WAR bootstrap (`ServletInitializer`)
 - `POST /ollama` accepting a JSON body mapped to `UserRequest` (`message`, `model`)
 - Model selection per request, with `llama2-uncensored` when `model` is null
-- A synchronous `OllamaChatModel.call(...)` and a plain-text response (`ChatResponse` output text)
+- A synchronous `OllamaChatModel.call(...)` and a plain-text response (the output text of the first result)
+- Docker image and Docker Compose setup for the app, Ollama, and an initial model pull
 - A context-load smoke test
 
 Out of scope in the current code:
@@ -164,19 +193,19 @@ Out of scope in the current code:
 - A frontend or static chat page
 - Authentication, authorization, and request validation beyond JSON binding
 - Health, metrics, or model-management endpoints
-- Automated pull of Ollama models at startup (`application.properties` does not set `spring.ai.ollama.init.pull-model-strategy`)
+- Automated pull of Ollama models at application startup (`application.properties` does not set `spring.ai.ollama.init.pull-model-strategy`; the pull is handled by Docker Compose)
 
 ## Project status
 
-**Early snapshot (`0.0.1-SNAPSHOT`).** The service exposes one chat endpoint and is suitable for local experiments against a running Ollama instance.
+**Early snapshot (`0.0.1-SNAPSHOT`).** The service exposes one chat endpoint and is suitable for local experiments against a running Ollama instance or the Docker Compose setup.
 
 - No continuous-integration workflow is included, so there is no build-status badge.
 - `pom.xml` leaves project URL, developers, SCM, and license empty.
-- `src/main/resources/application.properties` does not override the Ollama base URL or default chat model. The default model name is hard-coded in `OllamaRestController`.
+- `application.properties` does not set the Ollama base URL or default chat model. The default model name is hard-coded in `OllamaRestController`; the base URL defaults to `localhost:11434` unless overridden.
 - Tests cover application context startup only.
 
 ## License
 
-No project license is declared. `pom.xml` contains an empty `<license>` element, and the repository has no `LICENSE` file.
+No project license is declared. `pom.xml` contains an empty `<license>` element, and the repository has no `LICENSE` file. Until a license is added, all rights are reserved by the author by default.
 
 The Apache License 2.0 notice in `.mvn/wrapper/maven-wrapper.properties` applies to the Maven Wrapper, not to this application.
