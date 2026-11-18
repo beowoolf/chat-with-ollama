@@ -1,0 +1,57 @@
+services:
+  # Serwer Ollama z modelami LLM
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    # Odkomentuj, aby użyć karty graficznej NVIDIA (wymaga NVIDIA Container Toolkit)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # Jednorazowe pobranie domyślnego modelu używanego przez aplikację
+  ollama-pull:
+    image: ollama/ollama:latest
+    container_name: ollama-pull
+    entrypoint: ["ollama"]
+    command: ["pull", "${OLLAMA_MODEL:-llama2-uncensored}"]
+    environment:
+      OLLAMA_HOST: ollama:11434
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
+
+  # Aplikacja Spring Boot
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chat-with-ollama
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_AI_OLLAMA_BASE_URL: http://ollama:11434
+    depends_on:
+      ollama:
+        condition: service_healthy
+      ollama-pull:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  ollama-data:
